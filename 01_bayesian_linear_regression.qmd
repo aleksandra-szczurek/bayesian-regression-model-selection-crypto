@@ -1,0 +1,302 @@
+---
+title: "HOMEWORK 4 - BAYESIAN REGRESSION"
+author: "Szczurek, Santini, Tito"
+format: 
+ html:
+  self-contained-math: true
+  embed-resources: true 
+  theme: 
+   light: flatly
+   dark: darkly
+  toc: true
+  toc-depth: 4
+  toc-expand: true
+  toc-location: right
+  smooth-scroll: true
+---
+
+## BAYESIAN MULTIPLE REGRESSION
+
+Starting from a Multiple Regression Model denoted as follows:
+
+$$Yi = \mathbf{x_i}'\mathbf{\beta} + \epsilon_i$$for $\;i= 1,...n$
+
+We know that:
+
+$$\mathbf{x_i} = (1, x_{i1}, x_{i2}, \ldots, x_{ik})'$$ $$\mathbf{\beta} =(\beta_0,\beta_1,\beta_2,...,\beta_k)'$$
+
+and we also know that: $$\epsilon_i \sim N(0,\sigma^2)$$
+
+Than, using matrix notation we can derive the new formulation of the regression equation:
+
+$$
+\mathbf{Y} = \mathbf{X}\mathbf{\beta}+\mathbf{\epsilon}
+$$
+
+In this notation $\mathbf{Y}$ is the $(n × 1)$ response vector, $\mathbf{X}$ is the $(n × k)$ design matrix, which includes a column of ones for the intercept, $\mathbf{\beta}$ is the $(k × 1)$ vector of regression coefficients, and $\sigma^2$ is the error variance.
+
+### PRIOR DISTRIBUTIONS
+
+Also the Bayesian Regression is based on the theory of conjugate priors. We can specify the prior distributions for both the error variance and fot the regression coefficients. In particular:
+
+Prior distribution for $\sigma^2$:
+
+$$\sigma^2 \sim IG(a,b)$$
+
+Prior distribution for $\beta$:
+
+$$\mathbf{\beta}|\sigma^2\sim N_{K+1}(\mathbf{\mu},\sigma^2\Lambda^{-1})$$
+
+The foundation on conjugate priors ensures that the posterior distribution has simple closed-form solution.
+
+### POSTERIOR DISTRIBUTIONS
+
+After observing data, the posterior parameters are updated analytically:
+
+$\tilde{a}=a+\frac{n}{2}$
+
+$\tilde{b}=b+\frac{1}{2}(\mathbf{Y'}\mathbf{Y}+\mathbf{\mu'}\Lambda\mathbf{\mu}-\mathbf{\tilde{\mu '}}\tilde{\Lambda}\mathbf{\tilde{\mu}})$
+
+$\tilde{\mathbf{\mu}}=\tilde{\Lambda}^{-1}(X'\mathbf{Y}+\Lambda\mathbf{\mu})$
+
+$\tilde{\Lambda}=X'X+\Lambda$
+
+After updating the parameters, we can get the posterior distribution of $\beta$ given the error variance $\sigma^2$:
+
+$$\mathbf{\beta}|\sigma^2,\mathbf{Y}\sim N(\tilde{\mathbf{\mu}}, \sigma^2\tilde{\Lambda}^{-1} )$$
+
+The chosen dataset regards the prices of 4 assets: Ethereum, Gold, Bitcoin, and the VIX Index. The data were collected from April 2016 to December 2024.
+
+**Gold (GLD)**: SPDR Gold Shares (GLD) is the world’s leading gold ETF, providing investors with a simple and liquid way to gain exposure to gold prices without the need to physically hold the metal (Investing.com).
+
+**Bitcoin (BTC)**: BTC/USD is the primary digital currency pair, representing the market price of Bitcoin in U.S. Dollars; it serves as the global benchmark for measuring the cryptocurrency’s value and volatility (Investing.com).
+
+**Ethereum (ETH)**: ETH/USD is the currency pair representing the market price of Ether in U.S. Dollars; it serves as the primary benchmark for Ethereum, the leading platform for smart contracts and decentralized finance (Investing.com).
+
+**The CBOE Volatility Index (VIX)** is a real-time market index representing the market’s expectation of implied volatility. Derived from S&P 500 index options, it serves as a primary indicator of systemic risk and investor uncertainty regarding market turbulence over the coming month.
+
+Before proceeding with the analysis, it was useful to transform the variables into a logarithmic scale to normalize the data and obtain more accurate results. Additionally, this approach is beneficial because it allows for reasoning in terms of log-returns.
+
+$$return_t = \ln\left(\frac{Price_t}{Price_{t-1}}\right) = \ln(Price_t) - \ln(Price_{t-1})$$
+
+```{r}
+#| warning: false
+library(car)
+library(mvtnorm)
+#import dataset
+library(readr)
+
+data <- read_delim("DATITESI.csv", 
+                   delim = ";", 
+                   escape_double = FALSE, 
+                   col_types = cols(
+                     P_GLD = col_number(), 
+                     P_BTC = col_number(), 
+                     P_ETH = col_number(), 
+                     P_VIX = col_number(), 
+                   ), 
+                   trim_ws = TRUE)
+
+#convert the "Date" column in date format
+data$Date= as.Date(data$Date, format = "%m/%d/%Y")
+
+#reorder the dataset 
+data <- data[order(data$Date), ]
+
+#LOGARITHM TRANSFORMATIONS
+#GLD
+data$GLD_log <- c(NA, diff(log(data$P_GLD)))
+
+#BTC
+data$BTC_log <- c(NA, diff(log(data$P_BTC)))
+
+#ETH
+data$ETH_log <- c(NA, diff(log(data$P_ETH)))
+
+#VIX
+data$VIX_log <- c(NA, diff(log(data$P_VIX)))
+```
+
+After updating the real data, we have to define the vector of response variables and the design matrix.
+
+The chosen response variable is the BTC price. In this way, it is possible to analyze how the other assets' prices influence the Bitcoin price.
+
+Now we have to define the Bayesian Linear Regression Function.
+
+## REGRESSION
+
+```{r}
+#remove NA produced by logarithm transformation
+data_clean <- na.omit(data)
+
+y <- as.matrix(data_clean$BTC_log)
+x <- as.matrix(cbind(1, data_clean[, c("ETH_log", "GLD_log", "VIX_log")]))
+
+#function
+bayesian_lin_regr <- function(x, y, a, b, mu, lambda, r, plot_samples = TRUE) {
+  n <- nrow(x)
+  k <- ncol(x)
+  
+  #posterior parameters in closed-form
+  lambda_tilde <- t(x) %*% x + lambda
+  mu_tilde <- solve(lambda_tilde, t(x) %*% y + lambda %*% mu) 
+  a_tilde <- a + (n / 2)
+  b_tilde <- b + 0.5 * (t(y) %*% y + t(mu) %*% lambda %*% mu - t(mu_tilde) %*% lambda_tilde %*% mu_tilde)
+  
+  #storage for posterior samples
+  sigma_squared_r <- numeric(r)
+  beta_r <- matrix(NA, nrow = r, ncol = k)
+  
+  #the 'for' loop with MC implementation 
+  for (i in seq_len(r)) {
+    sigma_squared_r[i] <- 1 / rgamma(1, shape = a_tilde, rate = b_tilde)
+    beta_r[i, ] <- rmvnorm(1, mean = mu_tilde, sigma = sigma_squared_r[i] * solve(lambda_tilde))
+  }
+  
+  #expectations
+  prior_beta <- mu
+  beta_OLS <- solve(t(x) %*% x, t(x) %*% y)  
+  posterior_beta <- mu_tilde
+  
+  prior_sigma_squared    <- b / (a - 1)                             
+  sigma_squared_OLS      <- sum((y - x %*% beta_OLS)^2) / (n - k + 1)  
+  posterior_sigma_squared <- as.numeric(b_tilde / (a_tilde - 1))   
+  
+  #prior and posterior variances
+  prior_var_beta           <- prior_sigma_squared * solve(lambda)
+  posterior_var_beta       <- posterior_sigma_squared * solve(lambda_tilde)
+  prior_var_sigma_squared  <- (b^2) / (((a - 1)^2) * (a - 2))       
+  posterior_var_sigma_squared <- (b_tilde^2) / (((a_tilde - 1)^2) * (a_tilde - 2))  
+  
+  #posterior means and covariance
+  posterior_mean_beta_r    <- colMeans(beta_r)
+  posterior_var_cov_beta_r <- cov(beta_r)
+  
+  #graphical illustration: cross-plots 
+  if (plot_samples) {
+    scatterplotMatrix(as.data.frame(beta_r), regLine = FALSE, smooth = FALSE,
+                      diagonal = list(method = "density"),
+                      col = "maroon4", var.labels = paste0("Beta ", 0:(k - 1)))
+  }
+  
+  #output 
+  return(list(
+    prior_beta               = prior_beta,
+    beta_OLS                 = beta_OLS,
+    posterior_beta           = posterior_beta,
+    posterior_mean_beta_r    = posterior_mean_beta_r,
+    prior_sigma_squared      = prior_sigma_squared,      
+    sigma_squared_OLS        = sigma_squared_OLS,
+    posterior_sigma_squared  = posterior_sigma_squared,
+    prior_var_beta           = prior_var_beta,
+    posterior_var_beta       = posterior_var_beta,
+    posterior_var_cov_beta_r = posterior_var_cov_beta_r,
+    prior_var_sigma_squared  = prior_var_sigma_squared,
+    posterior_var_sigma_squared = posterior_var_sigma_squared
+  ))
+}
+```
+
+We now define the prior parameters setting $\mu=0$ because it is the most common value used when the prior idea is vague. By doing so, in computations, many formulas will disappear.
+
+```{r}
+#Prior parameters
+a <- 4
+b <- 3
+mu <- rep(0, ncol(x)) 
+
+#identity matrix
+lambda <- diag(ncol(x)) 
+
+#posterior samples
+r <- 3000
+
+#results
+set.seed(26)
+results <- bayesian_lin_regr(x, y, a, b, mu, lambda, r, plot_samples = F); results
+```
+
+To facilitate the interpretation of the results, we can develop comparison tables.
+
+#### **COMPARISON BETWEEN COEFFICIENTS:**
+
+```{r}
+comparison_table <- data.frame(
+  Coefficients          = c("Intercept", "ETH_log", "GLD_log", "VIX_log"),
+  Prior                 = results$prior_beta,
+  OLS                   = results$beta_OLS[, 1],
+  Analytic_posterior        = results$posterior_beta[, 1],
+  Sample_posterior = results$posterior_mean_beta_r
+); comparison_table
+```
+
+Working with log-returns changes the interpretation of the coefficients: they now measure the elasticity between returns. This represents the percentage change in the response variable (BTC) for every 1% change in each predictor.
+
+As expected, the `prior beta` value is zero because we set $\mu = 0$, indicating a lack of prior information regarding the coefficients.
+
+`Ordinary Least Squares (OLS)` represents the classical regression results. It estimates coefficients by minimizing the sum of squared errors without incorporating any external information.
+
+`Analytic_posterior` is the result of the Bayesian Regression calculated through exact mathematical formulas.
+
+`Sample_posterior` is the result obtained via Monte Carlo simulation. It is nearly identical to the analytic posterior results, which confirms that the simulation has converged toward the theoretical solution.
+
+**INTERPRETATION:**
+
+**Intercept (0.02849545)**: The value is very close to zero, consistent with the hypothesis that BTC returns are nearly null in the absence of movements in other assets. In this instance, the Bayesian model appears more "optimistic" than the OLS model.
+
+**ETH_log (0.39264167)**: Ethereum returns are positively correlated with Bitcoin returns. Since we are using log-returns, this represents elasticity: a 1% increase in ETH returns leads to an approximately 0.39% increase in BTC returns.
+
+**GLD_log**: The OLS estimate is 0.25577216, but it drops drastically to 0.03915932 in the Bayesian model. This indicates that the OLS estimate for the effect of Gold on BTC was poorly supported by the data. The prior belief corrects this estimate, suggesting that the actual relationship between the two assets is weak.
+
+**VIX_log (-0.06442384)**: The coefficient is negative and remains stable across both methods. When market volatility increases, the asset's price tends to decrease. This is consistent with the risk-off nature of the assets examined.
+
+Analyzing the results of `Sample_posterior` obtained via Monte Carlo simulation, they show minimal differences compared to the analytical solutions.
+
+#### **COMPARISON BETWEEN THE ERROR VARIANCE:**
+
+```{r}
+sigma_table <- data.frame(
+  Method  = c("Prior", "OLS", "Posterior"),
+  sigma_squared = c(results$prior_sigma_squared, 
+             results$sigma_squared_OLS, 
+             results$posterior_sigma_squared)
+); sigma_table
+```
+
+"These results show the transition from strong prior uncertainty $(\sigma^2=1)$ to a very low variance derived from the OLS (0.02435831). The Bayesian model provides a compromise between these two values (0.07857875), as it represents a weighted average between the prior beliefs and the empirical evidence of the data.
+
+#### **COMPARISON BETWEEN THE VARIANCE OF THE COEFFICIENTS:**
+
+```{r}
+var_cov_table <- data.frame(
+  Coefficient = c("Intercept", "ETH_log", "GLD_log", "VIX_log"),
+  Analytic    = diag(results$posterior_var_beta),
+  Sample  = diag(results$posterior_var_cov_beta_r),
+  Difference   = abs(diag(results$posterior_var_beta) - diag(results$posterior_var_cov_beta_r))
+); var_cov_table
+```
+
+With the command `diag` we extract only the variances of the coefficients. 
+
+All coefficients show a significant reduction in variance after observing the data. VIX_log and ETH_log exhibit lower variances compared to GLD_log, which remains a more uncertain and weaker variable.
+
+The differences in the results are very small, indicating that the Monte Carlo estimates accurately approximated the analytical posterior distribution across all coefficients.
+
+#### **GRAPHICAL OVERVIEW**
+
+```{r, results='hide'}
+set.seed(26)
+bayesian_lin_regr(x, y, a, b, mu, lambda, r, plot_samples = T)
+```
+
+The diagonal panels show the marginal posterior distributions for each coefficient.
+
+$\beta_0$: exhibits a narrow, symmetric distribution, which is consistent with the low posterior variance of 0.0007744265.
+
+$\beta_1$ (ETH_log) and $\beta_3$ (VIX_log) show fairly symmetric distributions, unlike the $\beta_2$  (GLD_log) distribution, which is broader, validating the higher variance mentioned earlier.
+
+In the off-diagonal panels, we can examine the correlations between the scatter plots, which show that there are no strong posterior correlations among the parameters examined.
+
+POTENTIAL IMPROVEMENTS:
+
+To further refine the model, we could either increase the $r$ parameter or explore the inclusion of alternative predictors.

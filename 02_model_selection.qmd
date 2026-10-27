@@ -1,0 +1,247 @@
+---
+title: "HOMEWORK 6 - MODEL SELECTION"
+author: "Szczurek, Santini, Tito"
+format: 
+ html:
+  self-contained-math: true
+  embed-resources: true 
+  theme: 
+   light: flatly
+   dark: darkly
+  toc: true
+  toc-depth: 4
+  toc-expand: true
+  toc-location: right
+  smooth-scroll: true
+---
+
+## INTRODUCTION TO THE DATASET
+
+The chosen dataset for this analysis regards the prices of four assets: Ethereum, Gold, Bitcoin, and the VIX Index. The data were collected from April 2016 to December 2024 (see Homework 4).
+
+```{r}
+#| warning: false
+#import dataset
+library(readr)
+
+data <- read_delim("DATITESI.csv", 
+                   delim = ";", 
+                   escape_double = FALSE, 
+                   col_types = cols(
+                     P_GLD = col_number(), 
+                     P_BTC = col_number(), 
+                     P_ETH = col_number(), 
+                     P_VIX = col_number(), 
+                   ), 
+                   trim_ws = TRUE)
+
+#convert the "Date" column in date format
+data$Date= as.Date(data$Date, format = "%m/%d/%Y")
+
+#reorder the dataset 
+data <- data[order(data$Date), ]
+```
+
+Given the economic theory, it is useful to transform the variables into a logarithmic scale because it allows for reasoning in terms of log-returns, computed as follows.
+
+$$return_t = \ln\left(\frac{Price_t}{Price_{t-1}}\right) = \ln(Price_t) - \ln(Price_{t-1})$$
+
+```{r}
+#LOGARITHM TRANSFORMATIONS
+#GLD
+data$GLD_log <- c(NA, diff(log(data$P_GLD)))
+
+#BTC
+data$BTC_log <- c(NA, diff(log(data$P_BTC)))
+
+#ETH
+data$ETH_log <- c(NA, diff(log(data$P_ETH)))
+
+#VIX
+data$VIX_log <- c(NA, diff(log(data$P_VIX)))
+
+#remove NA produced by logarithm transformation
+data_clean <- na.omit(data)
+```
+
+## MODEL SELECTION FRAMEWORK
+
+Model selection consists in comparing a set of competing probabilistic models for the same observed data.
+The purpose is to selct the best and more parsimonious one.
+
+In particular, for each model $M_h$ it is assumed that the observed data $x$ follow a specific probability distribution conditioned on the parameters $\mathbf{\theta_h}$.
+
+$$M_h: X \sim P_h(x|\boldsymbol{\theta_h})$$ 
+Where:
+
+$$\boldsymbol{\theta}_h \in \Theta_h ; \quad \boldsymbol{\theta}_h\sim\pi'_h(\boldsymbol{\theta}_h)$$
+
+The parameter vector $\boldsymbol{\theta}_h$ belongs to a dedicated parameter space $\Theta_h$ and, to complete the Bayesian framework, a specific prior distribution $\pi'_h(\boldsymbol{\theta}_h)$ is assigned to each parameter vector.
+
+## INFORMATION CRITERIA: AIC AND BIC 
+
+To determine the total number of models that can be constructed by combining the three explanatory variables (ETH_log, GLD_log, and VIX_log), there are $2^3=8$ possible combinations, as each variable can either be included in or excluded from the model.
+
+The purpose of Model Selection is to compare these eight candidate models to identify the optimal one, characterized by the minimum BIC or minimum AIC value
+
+The Bayes Factor considers the marginal likelihoods $m_i(\mathbf{x})$ and $m_j(\mathbf{x})$, which can be difficult to compute. 
+
+In such cases, we can rely on the **Bayesian Information Criterion (BIC)**, as it provides a large-sample approximation to the log marginal likelihood under specific regularity conditions.
+
+$$BIC_h = -2\ell_h(\widehat{\boldsymbol{\theta}}_h) + d_h\log n$$
+
+In which: 
+
+* $\ell_h(\widehat{\boldsymbol{\theta}}_h)$ is the log-likelihood calculated at the point of maximization $\widehat{\boldsymbol{\theta}}_h$ (MLE).
+
+* $d_h$ represents the dimension of the parameter vector, specifically the number of free parameters in the model.
+
+* $\log n$ is the natural logarithm of the sample size, which serves as the weight for the penalty term.
+
+* $d_h \log n$ It represents the penalty term, which increases as the complexity of the model grows. 
+
+This mechanism ensures a balance between the model's goodness-of-fit and its parsimony, penalizing the inclusion of unnecessary variables.
+
+The BIC is closely linked to the Bayes Factor via the following ***asymptotic approximation*** (for large $n$):
+
+$$2\log BF_{ij} \approx BIC_j - BIC_i$$
+
+This approximation allows for a transition from a comparison based on marginal likelihood to one based on penalized maximum likelihood.
+
+It is important to note that the model with the minimum BIC is preferred.
+
+As a complementary measure to the BIC, we also consider the **Akaike Information Criterion (AIC)**.
+Unlike BIC, AIC is not derived from a Bayesian perspective but from frequentist arguments aimed at minimizing predictive error.
+
+$$AIC_h = -2\ell_h(\widehat{\boldsymbol{\theta}}_h) + 2d_h$$
+While the BIC penalizes complexity based on the sample size, the AIC employs a fixed penalty equal to $2d_h$.
+
+
+```{r}
+model_names  <- c("M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7")
+model_labels <- c("Intercept", "ETH", "GLD", "VIX", "ETH + GLD", "ETH + VIX", "GLD + VIX", "ETH + GLD + VIX")
+
+#2^3 different combinations
+M0 <- lm(BTC_log ~ 1, data = data_clean)  
+M1 <- lm(BTC_log ~ ETH_log, data = data_clean)  
+M2 <- lm(BTC_log ~ GLD_log, data = data_clean)  
+M3 <- lm(BTC_log ~ VIX_log, data = data_clean)  
+M4 <- lm(BTC_log ~ ETH_log + GLD_log, data = data_clean)  
+M5 <- lm(BTC_log ~ ETH_log + VIX_log, data = data_clean)  
+M6 <- lm(BTC_log ~ GLD_log + VIX_log, data = data_clean)  
+M7 <- lm(BTC_log ~ ETH_log + GLD_log + VIX_log, data = data_clean)
+
+#add these models in a list
+model_list   <- list(M0, M1, M2, M3, M4, M5, M6, M7)
+
+#AIC BIC
+Aics <- sapply(model_list, AIC)
+Bics <- sapply(model_list, BIC)
+
+#comparison table
+comparison_table <- data.frame(
+  Model = c("M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7"),
+  Predictors = c("-", "ETH", "GLD", "VIX", "ETH + GLD", "ETH + VIX", "GLD + VIX", "ETH + GLD + VIX"),
+  AIC = round(Aics, 4),
+  BIC = round(Bics, 4)); comparison_table
+```
+
+**Best Model according to BIC:** the minimum value is achieved by Model M1 (ETH) with a BIC of -78.7940.
+
+**Best Model according to AIC:** The minimum value is achieved by Model M1 (ETH) with an AIC of -86.7272.
+
+Both criteria strongly suggest that Ethereum (ETH) is the most significant predictor for Bitcoin's log-returns. 
+
+The Global Model (M7) actually performs worse than the simpler model M1.
+
+* BIC, M7 (-71.03) is worse than M1 (-78.79).
+* AIC, M7 (-84.25) is worse than M1 (-86.73).
+
+This indicates that adding Gold and VIX to a model that already contains Ethereum does not improve the likelihood enough to justify the extra parameters.
+
+## BAYESIAN FACTOR ANALYSIS
+
+Generally, to select the best model, one can rely on the Bayes Factor, which assumes that a model's quality is determined by its marginal likelihood. This marginal likelihood represents a sort of average likelihood calculated as the expected value with respect to the prior distribution.
+
+For instance, when comparing two hypotheses ($H_i$ and $H_j$), the Bayes Factor is calculated as follows:
+
+$$BF_{ij} = \frac{\int_{\Theta_i} \pi'_i(\boldsymbol{\theta_i}) \, p(\mathbf{x} \mid \theta_i) \, d\theta_i}{\int_{\Theta_j} \pi'_j(\theta_j) \, p(\mathbf{x} \mid \theta_j) \, d\theta_j} = \frac{m_i(\mathbf{x})}{m_j(\mathbf{x})}= \frac{P(\Theta_i \mid \mathbf{x}) \, / \, P(\Theta_i)}{P(\Theta_j \mid \mathbf{x}) \, / \, P(\Theta_j)} \gtrless 1$$
+
+To analyze the evidence in favor of $H_i$ there are specific interpretation criteria proposed by Jeffreys for the Bayes Factor value:
+
+* $BF_{ij}<1:$ the evidence supports $M_j$ (the alternative model).
+
+* $BF_{ij}\in(1,\sqrt{10}]:$ the result is ***barely worth mentioning.***
+
+* $BF_{ij}\in(\sqrt{10},10]:$ the evidence is ***substantial.***
+
+* $BF_{ij}\in(10,\sqrt{10}\times10]:$ there is ***strong*** evidence in favor of $H_i$.
+
+* $BF_{ij}\in(\sqrt{10}\times10,100]:$ the evidence is ***very strong.***
+
+* $BF_{ij}>100:$ the evidence is ***decisive.*** 
+
+The approximation employed to derive the Bayes Factor is:
+
+$$BF_{ij} \approx e^{(BIC_j - BIC_i)/2}$$
+For large $n$, it is a reasonable approximation.
+
+```{r}
+#BF matrix approximation
+BF_matrix <- exp(0.5 * t(outer(Bics, Bics, FUN = "-")))
+
+#table
+dimnames(BF_matrix) <- list(model_names, model_names)
+
+BF_table <- as.data.frame(round(BF_matrix, 3));BF_table
+```
+
+The Bayes Factor matrix $BF_{ij}$ compares the model in the row ($M_i$) 
+against the model in the column ($M_j$). According to Jeffreys' 
+interpretation scale, the results from the matrix show:
+
+**M1 vs M0 ($BF_{10} \approx 6 \times 10^{11}$):** This value far exceeds 
+100, providing **decisive** evidence in favor of M1 (ETH) over the null model. 
+Ethereum is clearly a relevant predictor for Bitcoin's log-returns.
+
+**M1 vs M2 ($BF_{12} \approx 2.519 \times 10^{12}$):** This value far exceeds 
+100, providing **decisive** evidence in favor of M1 (ETH) over M2 (GLD). 
+
+**M1 vs M3 ($BF_{13} \approx 1.053 \times 10^{12}$):** This value also far 
+exceeds 100, providing **decisive** evidence in favor of M1 (ETH) over M3 (VIX). 
+The VIX proves to be a much weaker predictor of Bitcoin's log-returns compared to Ethereum.
+
+**M1 vs M4 ($BF_{14} \approx 8.33$):** This value falls between 3 and 10, 
+representing **substantial** evidence in favor of M1 over M4 (ETH + GLD).
+
+**M1 vs M5 ($BF_{15} \approx 5.86$):** Also between 3 and 10, showing 
+**substantial** evidence in favor of M1 over M5 (ETH + VIX).
+
+**M1 vs M6 ($BF_{16} \approx 4.424 \times 10^{12}$):** This value far exceeds 
+100, providing **decisive** evidence in favor of M1 (ETH) over M6 (GLD + VIX). 
+Even combining Gold and VIX together cannot compete with Ethereum alone as a 
+predictor of Bitcoin's log-returns.
+
+**M1 vs M7 ($BF_{17} \approx 48.5$):** This value falls between 30 and 100, 
+indicating **very strong** evidence in favor of M1 over the global model M7. 
+Adding Gold and VIX to Ethereum does not justify the increased complexity.
+
+**M2 VS M3 ($BF_{23}\approx0.418$):** This value is less than 1, so the evidence supports the M3 model (using VIX) over M2 (GLD).
+
+**M0 VS M7 ($BF_{07}\approx0$):** The evidence in favor the M7 model is decisive.
+
+
+## CONCLUSIONS ON MODEL SELECTION
+
+Both the BIC criterion and the Bayes Factor approximation consistently identify 
+**Model M1** — containing only Ethereum (ETH) as a predictor — as the best model 
+for explaining Bitcoin's log-returns. 
+There is no discrepancy between the two criteria: the Bayes Factor, being derived 
+as an approximation of the BIC, naturally leads to the same conclusion.
+
+The global model M7 (ETH + GLD + VIX), despite fitting the data well in absolute 
+terms, is penalized for its additional parameters. The evidence strongly suggests 
+that the co-movement between Ethereum and Bitcoin captures the most relevant 
+information, while Gold and VIX do not provide sufficient additional explanatory 
+power to justify their inclusion.
+
